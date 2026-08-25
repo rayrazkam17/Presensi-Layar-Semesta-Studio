@@ -736,4 +736,57 @@ class AttendanceService {
       result,
     );
   }
+    Future<List<Map<String, dynamic>>>
+      getEmployeeAttendanceByRange({
+    required String userId,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    String formatDate(DateTime date) {
+      final month =
+          date.month.toString().padLeft(2, '0');
+
+      final day =
+          date.day.toString().padLeft(2, '0');
+
+      return '${date.year}-$month-$day';
+    }
+
+    final start = formatDate(startDate);
+    final end = formatDate(endDate);
+
+    final response = await supabase
+        .from('attendance')
+        .select('''
+          id,
+          user_id,
+          attendance_date,
+          check_in,
+          check_out,
+          total_work_hours,
+          is_overtime,
+          is_manual,
+          manual_reason
+        ''')
+        .eq(
+          'user_id',
+          userId,
+        )
+        .gte(
+          'attendance_date',
+          start,
+        )
+        .lte(
+          'attendance_date',
+          end,
+        )
+        .order(
+          'attendance_date',
+          ascending: true,
+        );
+
+    return List<Map<String, dynamic>>.from(
+      response,
+    );
+  }
 }

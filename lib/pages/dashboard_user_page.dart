@@ -3,12 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../widgets/current_user_header.dart';
 
-import 'login_page.dart';
 import 'attendance_page.dart';
+import 'login_page.dart';
 import 'my_attendance_page.dart';
 
-class DashboardUserPage
-    extends StatelessWidget {
+class DashboardUserPage extends StatelessWidget {
   const DashboardUserPage({
     super.key,
   });
@@ -20,8 +19,53 @@ class DashboardUserPage
   Future<void> _logout(
     BuildContext context,
   ) async {
-    await Supabase.instance.client.auth
-        .signOut();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          icon: const Icon(
+            Icons.logout_rounded,
+            size: 38,
+          ),
+          title: const Text(
+            'Logout?',
+          ),
+          content: const Text(
+            'Apakah Anda yakin ingin keluar dari akun?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(
+                  dialogContext,
+                  false,
+                );
+              },
+              child: const Text(
+                'BATAL',
+              ),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(
+                  dialogContext,
+                  true,
+                );
+              },
+              child: const Text(
+                'LOGOUT',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    await Supabase.instance.client.auth.signOut();
 
     if (!context.mounted) {
       return;
@@ -30,11 +74,126 @@ class DashboardUserPage
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(
-        builder:
-            (_) =>
-                const LoginPage(),
+        builder: (_) => const LoginPage(),
       ),
       (route) => false,
+    );
+  }
+
+  // =========================================================
+  // MENU CARD
+  // =========================================================
+
+  Widget _buildMenuCard({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    required String description,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      margin: EdgeInsets.zero,
+
+      child: InkWell(
+        onTap: onTap,
+
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+
+          child: Row(
+            crossAxisAlignment:
+                CrossAxisAlignment.center,
+
+            children: [
+              // =================================================
+              // ICON
+              // =================================================
+
+              Container(
+                width: 58,
+                height: 58,
+
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primaryContainer,
+
+                  borderRadius:
+                      BorderRadius.circular(
+                    100,
+                  ),
+                ),
+
+                child: Icon(
+                  icon,
+                  size: 29,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary,
+                ),
+              ),
+
+              const SizedBox(
+                width: 16,
+              ),
+
+              // =================================================
+              // TEXT
+              // =================================================
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+
+                  children: [
+                    Text(
+                      title,
+
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleLarge
+                          ?.copyWith(
+                            fontWeight:
+                                FontWeight.bold,
+                          ),
+                    ),
+
+                    const SizedBox(
+                      height: 5,
+                    ),
+
+                    Text(
+                      description,
+
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium,
+
+                      // Jangan batasi maxLines.
+                      // Supaya HP kecil bisa wrap.
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(
+                width: 8,
+              ),
+
+              // =================================================
+              // ARROW
+              // =================================================
+
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 30,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -46,32 +205,55 @@ class DashboardUserPage
   Widget build(
     BuildContext context,
   ) {
+    final screenWidth =
+        MediaQuery.sizeOf(context).width;
+
+    final isSmallMobile =
+        screenWidth < 430;
+
+    final bottomSafeArea =
+        MediaQuery.viewPaddingOf(context).bottom;
+
+    // =========================================================
+    // SAFARI / MOBILE BOTTOM SPACE
+    //
+    // Browser Safari mempunyai toolbar bawah yang dapat
+    // menutupi isi Flutter Web.
+    //
+    // Kita beri ruang ekstra supaya card terakhir benar-benar
+    // bisa discroll melewati toolbar browser.
+    // =========================================================
+
+    final bottomPadding =
+        isSmallMobile
+            ? 130.0 + bottomSafeArea
+            : 60.0 + bottomSafeArea;
+
     return Scaffold(
       // =====================================================
       // APP BAR
       // =====================================================
 
       appBar: AppBar(
-        title:
-            const Text(
+        title: const Text(
           'Dashboard User',
         ),
 
+        centerTitle: true,
+
         actions: [
           IconButton(
-            icon:
-                const Icon(
+            icon: const Icon(
               Icons.logout_rounded,
             ),
+            tooltip: 'Logout',
+            onPressed: () {
+              _logout(context);
+            },
+          ),
 
-            tooltip:
-                'Logout',
-
-            onPressed:
-                () =>
-                    _logout(
-              context,
-            ),
+          const SizedBox(
+            width: 6,
           ),
         ],
       ),
@@ -81,271 +263,177 @@ class DashboardUserPage
       // =====================================================
 
       body: SafeArea(
-        child:
-            SingleChildScrollView(
-          padding:
-              const EdgeInsets.all(
-            16,
-          ),
+        bottom: false,
 
-          child: Center(
-            child:
-                ConstrainedBox(
-              constraints:
-                  const BoxConstraints(
-                maxWidth:
-                    700,
+        child: LayoutBuilder(
+          builder: (
+            context,
+            constraints,
+          ) {
+            return ListView(
+              // =================================================
+              // INI BAGIAN PENTING UNTUK HP KECIL
+              // =================================================
+
+              physics:
+                  const AlwaysScrollableScrollPhysics(
+                parent:
+                    BouncingScrollPhysics(),
               ),
 
-              child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment
-                        .stretch,
+              keyboardDismissBehavior:
+                  ScrollViewKeyboardDismissBehavior
+                      .onDrag,
 
-                children: [
-                  // ===========================================
-                  // CURRENT USER
-                  // ===========================================
-
-                  const CurrentUserHeader(),
-
-                  const SizedBox(
-                    height:
-                        32,
-                  ),
-
-                  // ===========================================
-                  // TITLE
-                  // ===========================================
-
-                  Text(
-                    'Menu Presensi',
-
-                    style:
-                        Theme.of(
-                      context,
-                    )
-                            .textTheme
-                            .headlineSmall
-                            ?.copyWith(
-                              fontWeight:
-                                  FontWeight.bold,
-                            ),
-                  ),
-
-                  const SizedBox(
-                    height:
-                        8,
-                  ),
-
-                  Text(
-                    'Silakan pilih menu yang ingin digunakan.',
-
-                    style:
-                        Theme.of(
-                      context,
-                    )
-                            .textTheme
-                            .bodyMedium,
-                  ),
-
-                  const SizedBox(
-                    height:
-                        24,
-                  ),
-
-                  // ===========================================
-                  // ATTENDANCE CARD
-                  // ===========================================
-
-                  Card(
-                    clipBehavior:
-                        Clip.antiAlias,
-
-                    child:
-                        InkWell(
-                      onTap:
-                          () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder:
-                                (_) =>
-                                    const AttendancePage(),
-                          ),
-                        );
-                      },
-
-                      child:
-                          const Padding(
-                        padding:
-                            EdgeInsets.all(
-                          20,
-                        ),
-
-                        child:
-                            Row(
-                          children: [
-                            CircleAvatar(
-                              radius:
-                                  27,
-
-                              child:
-                                  Icon(
-                                Icons
-                                    .camera_alt_rounded,
-                              ),
-                            ),
-
-                            SizedBox(
-                              width:
-                                  16,
-                            ),
-
-                            Expanded(
-                              child:
-                                  Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment
-                                        .start,
-
-                                children: [
-                                  Text(
-                                    'Absen Sekarang',
-
-                                    style:
-                                        TextStyle(
-                                      fontSize:
-                                          17,
-                                      fontWeight:
-                                          FontWeight.bold,
-                                    ),
-                                  ),
-
-                                  SizedBox(
-                                    height:
-                                        4,
-                                  ),
-
-                                  Text(
-                                    'Ambil foto untuk melakukan '
-                                    'absen masuk atau keluar.',
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            Icon(
-                              Icons
-                                  .chevron_right_rounded,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(
-                    height:
-                        12,
-                  ),
-
-                  // ===========================================
-                  // HISTORY CARD
-                  // ===========================================
-
-                  Card(
-                    clipBehavior:
-                        Clip.antiAlias,
-
-                    child:
-                        InkWell(
-                      onTap:
-                          () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder:
-                                (_) =>
-                                    const MyAttendancePage(),
-                          ),
-                        );
-                      },
-
-                      child:
-                          const Padding(
-                        padding:
-                            EdgeInsets.all(
-                          20,
-                        ),
-
-                        child:
-                            Row(
-                          children: [
-                            CircleAvatar(
-                              radius:
-                                  27,
-
-                              child:
-                                  Icon(
-                                Icons
-                                    .history_rounded,
-                              ),
-                            ),
-
-                            SizedBox(
-                              width:
-                                  16,
-                            ),
-
-                            Expanded(
-                              child:
-                                  Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment
-                                        .start,
-
-                                children: [
-                                  Text(
-                                    'Riwayat Presensi',
-
-                                    style:
-                                        TextStyle(
-                                      fontSize:
-                                          17,
-                                      fontWeight:
-                                          FontWeight.bold,
-                                    ),
-                                  ),
-
-                                  SizedBox(
-                                    height:
-                                        4,
-                                  ),
-
-                                  Text(
-                                    'Lihat riwayat kehadiran '
-                                    'dan jam kerja Anda.',
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            Icon(
-                              Icons
-                                  .chevron_right_rounded,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              padding: EdgeInsets.fromLTRB(
+                isSmallMobile ? 16 : 24,
+                18,
+                isSmallMobile ? 16 : 24,
+                bottomPadding,
               ),
-            ),
-          ),
+
+              children: [
+                // =================================================
+                // CENTER CONTENT
+                // =================================================
+
+                Center(
+                  child: ConstrainedBox(
+                    constraints:
+                        const BoxConstraints(
+                      maxWidth: 700,
+                    ),
+
+                    child: Column(
+                      crossAxisAlignment:
+                          CrossAxisAlignment.stretch,
+
+                      children: [
+                        // ===========================================
+                        // USER HEADER
+                        // ===========================================
+
+                        const CurrentUserHeader(),
+
+                        SizedBox(
+                          height:
+                              isSmallMobile
+                                  ? 32
+                                  : 38,
+                        ),
+
+                        // ===========================================
+                        // MENU TITLE
+                        // ===========================================
+
+                        Text(
+                          'Menu Presensi',
+
+                          style:
+                              Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(
+                                    fontWeight:
+                                        FontWeight.bold,
+                                  ),
+                        ),
+
+                        const SizedBox(
+                          height: 8,
+                        ),
+
+                        Text(
+                          'Silakan pilih menu yang ingin digunakan.',
+
+                          style:
+                              Theme.of(context)
+                                  .textTheme
+                                  .bodyLarge,
+                        ),
+
+                        const SizedBox(
+                          height: 26,
+                        ),
+
+                        // ===========================================
+                        // ABSEN SEKARANG
+                        // ===========================================
+
+                        _buildMenuCard(
+                          context: context,
+
+                          icon:
+                              Icons.camera_alt_rounded,
+
+                          title:
+                              'Absen Sekarang',
+
+                          description:
+                              'Ambil foto untuk melakukan '
+                              'absen masuk atau keluar.',
+
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder:
+                                    (_) =>
+                                        const AttendancePage(),
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(
+                          height: 16,
+                        ),
+
+                        // ===========================================
+                        // RIWAYAT PRESENSI
+                        // ===========================================
+
+                        _buildMenuCard(
+                          context: context,
+
+                          icon:
+                              Icons.history_rounded,
+
+                          title:
+                              'Riwayat Presensi',
+
+                          description:
+                              'Lihat riwayat kehadiran dan '
+                              'jam kerja Anda.',
+
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder:
+                                    (_) =>
+                                        const MyAttendancePage(),
+                              ),
+                            );
+                          },
+                        ),
+
+                        // ===========================================
+                        // EXTRA BOTTOM SPACE
+                        // ===========================================
+
+                        const SizedBox(
+                          height: 30,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
-}
+} 

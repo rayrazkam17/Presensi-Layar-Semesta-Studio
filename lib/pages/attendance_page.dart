@@ -19,10 +19,6 @@ class AttendancePage extends StatefulWidget {
 
 class _AttendancePageState
     extends State<AttendancePage> {
-  // =========================================================
-  // SERVICES
-  // =========================================================
-
   final AttendanceService
       _attendanceService =
       AttendanceService();
@@ -31,20 +27,11 @@ class _AttendancePageState
       _storageService =
       StorageService();
 
-  // =========================================================
-  // IMAGE
-  // =========================================================
-
   Uint8List? _approvedImage;
 
-  // Membuat ulang kamera setelah absensi berhasil.
-  int _cameraInstance = 0;
-
-  // =========================================================
-  // SUBMIT
-  // =========================================================
-
   bool _submitting = false;
+
+  int _cameraInstance = 0;
 
   // =========================================================
   // MESSAGE
@@ -54,13 +41,16 @@ class _AttendancePageState
     String message, {
     bool error = false,
   }) {
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
 
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(
+          content:
+              Text(
             message,
           ),
 
@@ -123,7 +113,7 @@ class _AttendancePageState
   }
 
   // =========================================================
-  // SUBMIT ATTENDANCE
+  // SUBMIT
   // =========================================================
 
   Future<void> _submitAttendance({
@@ -134,8 +124,7 @@ class _AttendancePageState
 
     if (image == null) {
       _showMessage(
-        'Ambil foto lalu tekan '
-        '"Gunakan Foto" terlebih dahulu.',
+        'Ambil foto lalu tekan Gunakan Foto terlebih dahulu.',
         error: true,
       );
 
@@ -151,10 +140,6 @@ class _AttendancePageState
     });
 
     try {
-      // =====================================================
-      // USER
-      // =====================================================
-
       final user =
           Supabase.instance
               .client
@@ -163,23 +148,22 @@ class _AttendancePageState
 
       if (user == null) {
         throw Exception(
-          'Sesi login tidak ditemukan. '
-          'Silakan login kembali.',
+          'Sesi login tidak ditemukan.',
         );
       }
 
       // =====================================================
-      // CHECK IN VALIDATION
+      // CHECK-IN
       // =====================================================
 
       if (checkIn) {
-        final alreadyCheckedIn =
+        final checkedIn =
             await _attendanceService
                 .hasCheckedInToday();
 
-        if (alreadyCheckedIn) {
+        if (checkedIn) {
           _showMessage(
-            'Anda sudah melakukan absen masuk hari ini.',
+            'Anda sudah absen masuk hari ini.',
             error: true,
           );
 
@@ -188,30 +172,30 @@ class _AttendancePageState
       }
 
       // =====================================================
-      // CHECK OUT VALIDATION
+      // CHECK-OUT
       // =====================================================
 
       else {
-        final alreadyCheckedIn =
+        final checkedIn =
             await _attendanceService
                 .hasCheckedInToday();
 
-        if (!alreadyCheckedIn) {
+        if (!checkedIn) {
           _showMessage(
-            'Anda belum melakukan absen masuk hari ini.',
+            'Anda belum melakukan absen masuk.',
             error: true,
           );
 
           return;
         }
 
-        final alreadyCheckedOut =
+        final checkedOut =
             await _attendanceService
                 .hasCheckedOutToday();
 
-        if (alreadyCheckedOut) {
+        if (checkedOut) {
           _showMessage(
-            'Anda sudah melakukan absen keluar hari ini.',
+            'Anda sudah absen keluar hari ini.',
             error: true,
           );
 
@@ -219,11 +203,7 @@ class _AttendancePageState
         }
       }
 
-      // =====================================================
-      // PHOTO PATH
-      // =====================================================
-
-      final filePath =
+      final path =
           _buildPhotoPath(
         userId:
             user.id,
@@ -232,10 +212,6 @@ class _AttendancePageState
             checkIn,
       );
 
-      // =====================================================
-      // UPLOAD PHOTO
-      // =====================================================
-
       final uploadedPath =
           await _storageService
               .uploadAttendancePhoto(
@@ -243,12 +219,8 @@ class _AttendancePageState
             image,
 
         fileName:
-            filePath,
+            path,
       );
-
-      // =====================================================
-      // SAVE DATABASE
-      // =====================================================
 
       if (checkIn) {
         await _attendanceService
@@ -268,30 +240,19 @@ class _AttendancePageState
         return;
       }
 
-      // =====================================================
-      // RESET
-      // =====================================================
-
       setState(() {
-        _approvedImage = null;
+        _approvedImage =
+            null;
 
         _cameraInstance++;
       });
 
-      // =====================================================
-      // SUCCESS
-      // =====================================================
-
       _showMessage(
         checkIn
-            ? 'Absen masuk berhasil disimpan.'
-            : 'Absen keluar berhasil disimpan.',
+            ? 'Absen masuk berhasil.'
+            : 'Absen keluar berhasil.',
       );
     } catch (e) {
-      if (!mounted) {
-        return;
-      }
-
       _showMessage(
         e
             .toString()
@@ -299,6 +260,7 @@ class _AttendancePageState
               'Exception: ',
               '',
             ),
+
         error: true,
       );
     } finally {
@@ -311,99 +273,73 @@ class _AttendancePageState
   }
 
   // =========================================================
-  // ATTENDANCE BUTTONS
+  // BUTTONS
   // =========================================================
 
-  Widget _buildAttendanceButtons(
-    bool isMobile,
-  ) {
-    final checkInButton =
-        SizedBox(
-      height: 54,
+  Widget _buildAttendanceButtons() {
+    return Column(
+      crossAxisAlignment:
+          CrossAxisAlignment
+              .stretch,
 
-      child: FilledButton.icon(
-        onPressed:
-            _submitting
-                ? null
-                : () {
-                    _submitAttendance(
-                      checkIn: true,
-                    );
-                  },
-
-        icon: const Icon(
-          Icons.login_rounded,
-        ),
-
-        label: const Text(
-          'ABSEN MASUK',
-        ),
-      ),
-    );
-
-    final checkOutButton =
-        SizedBox(
-      height: 54,
-
-      child: OutlinedButton.icon(
-        onPressed:
-            _submitting
-                ? null
-                : () {
-                    _submitAttendance(
-                      checkIn: false,
-                    );
-                  },
-
-        icon: const Icon(
-          Icons.logout_rounded,
-        ),
-
-        label: const Text(
-          'ABSEN KELUAR',
-        ),
-      ),
-    );
-
-    // =======================================================
-    // MOBILE
-    // =======================================================
-
-    if (isMobile) {
-      return Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.stretch,
-
-        children: [
-          checkInButton,
-
-          const SizedBox(
-            height: 12,
-          ),
-
-          checkOutButton,
-        ],
-      );
-    }
-
-    // =======================================================
-    // DESKTOP
-    // =======================================================
-
-    return Row(
       children: [
-        Expanded(
+        SizedBox(
+          height:
+              54,
+
           child:
-              checkInButton,
+              FilledButton.icon(
+            onPressed:
+                _submitting
+                    ? null
+                    : () {
+                        _submitAttendance(
+                          checkIn: true,
+                        );
+                      },
+
+            icon:
+                const Icon(
+              Icons.login_rounded,
+            ),
+
+            label:
+                const Text(
+              'ABSEN MASUK',
+            ),
+          ),
         ),
 
         const SizedBox(
-          width: 12,
+          height:
+              12,
         ),
 
-        Expanded(
+        SizedBox(
+          height:
+              54,
+
           child:
-              checkOutButton,
+              OutlinedButton.icon(
+            onPressed:
+                _submitting
+                    ? null
+                    : () {
+                        _submitAttendance(
+                          checkIn: false,
+                        );
+                      },
+
+            icon:
+                const Icon(
+              Icons.logout_rounded,
+            ),
+
+            label:
+                const Text(
+              'ABSEN KELUAR',
+            ),
+          ),
         ),
       ],
     );
@@ -417,276 +353,249 @@ class _AttendancePageState
   Widget build(
     BuildContext context,
   ) {
-    final screenWidth =
+    final width =
         MediaQuery.sizeOf(
       context,
     ).width;
 
     final isMobile =
-        screenWidth < 700;
+        width < 700;
 
-    final safeBottom =
-        MediaQuery.paddingOf(
+    final bottomInset =
+        MediaQuery.viewPaddingOf(
       context,
     ).bottom;
 
     return Scaffold(
-      // =====================================================
-      // APP BAR
-      // =====================================================
-
-      appBar: AppBar(
+      appBar:
+          AppBar(
         title:
             const Text(
           'Absensi',
         ),
       ),
 
-      // =====================================================
-      // BODY
-      // =====================================================
+      body:
+          SafeArea(
+        bottom:
+            false,
 
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (
-            context,
-            constraints,
-          ) {
-            return SingleChildScrollView(
-              keyboardDismissBehavior:
-                  ScrollViewKeyboardDismissBehavior
-                      .onDrag,
+        child:
+            ListView(
+          // =================================================
+          // PENTING UNTUK IOS
+          // =================================================
 
-              // Padding bawah dibuat besar supaya
-              // tombol tidak dimakan navigation bar HP.
-              padding:
-                  EdgeInsets.fromLTRB(
-                isMobile
-                    ? 14
-                    : 24,
+          physics:
+              const AlwaysScrollableScrollPhysics(
+            parent:
+                BouncingScrollPhysics(),
+          ),
 
-                18,
+          keyboardDismissBehavior:
+              ScrollViewKeyboardDismissBehavior
+                  .onDrag,
 
-                isMobile
-                    ? 14
-                    : 24,
+          padding:
+              EdgeInsets.fromLTRB(
+            isMobile
+                ? 16
+                : 24,
 
-                40 +
-                    safeBottom,
-              ),
+            20,
 
-              child: Center(
-                child: ConstrainedBox(
-                  constraints:
-                      const BoxConstraints(
-                    maxWidth: 760,
-                  ),
+            isMobile
+                ? 16
+                : 24,
 
-                  child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment
-                            .stretch,
+            // Toolbar Safari + Home indicator.
+            130 +
+                bottomInset,
+          ),
 
-                    children: [
-                      // =====================================
-                      // TITLE
-                      // =====================================
+          children: [
+            Center(
+              child:
+                  ConstrainedBox(
+                constraints:
+                    const BoxConstraints(
+                  maxWidth:
+                      760,
+                ),
 
-                      Text(
-                        'Ambil Foto Kehadiran',
+                child:
+                    Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment
+                          .stretch,
 
-                        textAlign:
-                            TextAlign.center,
+                  children: [
+                    // =========================================
+                    // TITLE
+                    // =========================================
 
-                        style:
-                            Theme.of(
-                          context,
-                        )
-                                .textTheme
-                                .headlineSmall
-                                ?.copyWith(
-                                  fontWeight:
-                                      FontWeight.bold,
-                                ),
+                    Text(
+                      'Ambil Foto Kehadiran',
+
+                      textAlign:
+                          TextAlign.center,
+
+                      style:
+                          Theme.of(
+                        context,
+                      )
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
+                                fontWeight:
+                                    FontWeight.bold,
+                              ),
+                    ),
+
+                    const SizedBox(
+                      height:
+                          8,
+                    ),
+
+                    Text(
+                      'Pastikan wajah terlihat jelas dan '
+                      'berada di tengah kamera.',
+
+                      textAlign:
+                          TextAlign.center,
+                    ),
+
+                    const SizedBox(
+                      height:
+                          24,
+                    ),
+
+                    // =========================================
+                    // CAMERA
+                    // =========================================
+
+                    CameraCaptureWidget(
+                      key:
+                          ValueKey(
+                        _cameraInstance,
                       ),
 
+                      onImageCaptured:
+                          (
+                        bytes,
+                      ) {
+                        setState(() {
+                          _approvedImage =
+                              bytes;
+                        });
+                      },
+
+                      onImageReset:
+                          () {
+                        setState(() {
+                          _approvedImage =
+                              null;
+                        });
+                      },
+                    ),
+
+                    // =========================================
+                    // PHOTO READY
+                    // =========================================
+
+                    if (_approvedImage !=
+                        null) ...[
                       const SizedBox(
-                        height: 8,
+                        height:
+                            10,
                       ),
 
-                      Text(
-                        'Pastikan wajah terlihat jelas '
-                        'dan berada di tengah kamera.',
-
-                        textAlign:
-                            TextAlign.center,
-
-                        style:
-                            Theme.of(
-                          context,
-                        )
-                                .textTheme
-                                .bodyMedium,
-                      ),
-
-                      const SizedBox(
-                        height: 22,
-                      ),
-
-                      // =====================================
-                      // CAMERA
-                      // =====================================
-
-                      CameraCaptureWidget(
-                        key:
-                            ValueKey(
-                          _cameraInstance,
+                      Container(
+                        padding:
+                            const EdgeInsets.all(
+                          14,
                         ),
 
-                        onImageCaptured:
-                            (
-                          imageBytes,
-                        ) {
-                          setState(() {
-                            _approvedImage =
-                                imageBytes;
-                          });
-                        },
+                        decoration:
+                            BoxDecoration(
+                          color:
+                              Colors.green
+                                  .withValues(
+                            alpha:
+                                0.08,
+                          ),
 
-                        onImageReset:
-                            () {
-                          setState(() {
-                            _approvedImage =
-                                null;
-                          });
-                        },
-                      ),
-
-                      // =====================================
-                      // IMAGE READY
-                      // =====================================
-
-                      if (_approvedImage !=
-                          null) ...[
-                        const SizedBox(
-                          height: 12,
-                        ),
-
-                        Container(
-                          padding:
-                              const EdgeInsets.all(
+                          borderRadius:
+                              BorderRadius.circular(
                             14,
                           ),
+                        ),
 
-                          decoration:
-                              BoxDecoration(
-                            color:
-                                Colors.green
-                                    .withValues(
-                              alpha: 0.08,
-                            ),
+                        child:
+                            const Row(
+                          children: [
+                            Icon(
+                              Icons
+                                  .check_circle_rounded,
 
-                            borderRadius:
-                                BorderRadius.circular(
-                              14,
-                            ),
-
-                            border:
-                                Border.all(
                               color:
-                                  Colors.green
-                                      .withValues(
-                                alpha: 0.25,
+                                  Colors.green,
+                            ),
+
+                            SizedBox(
+                              width:
+                                  10,
+                            ),
+
+                            Expanded(
+                              child:
+                                  Text(
+                                'Foto telah siap. '
+                                'Silakan pilih jenis absensi.',
                               ),
                             ),
-                          ),
-
-                          child:
-                              const Row(
-                            crossAxisAlignment:
-                                CrossAxisAlignment
-                                    .start,
-
-                            children: [
-                              Icon(
-                                Icons
-                                    .check_circle_rounded,
-
-                                color:
-                                    Colors.green,
-                              ),
-
-                              SizedBox(
-                                width: 10,
-                              ),
-
-                              Expanded(
-                                child:
-                                    Text(
-                                  'Foto telah dipilih. '
-                                  'Silakan pilih Absen Masuk '
-                                  'atau Absen Keluar.',
-
-                                  style:
-                                      TextStyle(
-                                    fontWeight:
-                                        FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                          ],
                         ),
-
-                        const SizedBox(
-                          height: 16,
-                        ),
-
-                        // ===================================
-                        // ATTENDANCE BUTTONS
-                        // ===================================
-
-                        _buildAttendanceButtons(
-                          isMobile,
-                        ),
-
-                        // ===================================
-                        // LOADING
-                        // ===================================
-
-                        if (_submitting) ...[
-                          const SizedBox(
-                            height: 18,
-                          ),
-
-                          const LinearProgressIndicator(),
-
-                          const SizedBox(
-                            height: 8,
-                          ),
-
-                          const Text(
-                            'Mengirim data absensi...',
-
-                            textAlign:
-                                TextAlign.center,
-                          ),
-                        ],
-                      ],
-
-                      // =====================================
-                      // BOTTOM SPACE
-                      // =====================================
+                      ),
 
                       const SizedBox(
-                        height: 24,
+                        height:
+                            16,
                       ),
+
+                      _buildAttendanceButtons(),
+
+                      if (_submitting) ...[
+                        const SizedBox(
+                          height:
+                              16,
+                        ),
+
+                        const LinearProgressIndicator(),
+
+                        const SizedBox(
+                          height:
+                              8,
+                        ),
+
+                        const Text(
+                          'Mengirim data absensi...',
+
+                          textAlign:
+                              TextAlign.center,
+                        ),
+                      ],
                     ],
-                  ),
+
+                    const SizedBox(
+                      height:
+                          40,
+                    ),
+                  ],
                 ),
               ),
-            );
-          },
+            ),
+          ],
         ),
       ),
     );

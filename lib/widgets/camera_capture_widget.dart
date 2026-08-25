@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 
 class CameraCaptureWidget extends StatefulWidget {
   final ValueChanged<Uint8List>? onImageCaptured;
@@ -75,9 +77,10 @@ class _CameraCaptureWidgetState
 
     if (state == AppLifecycleState.inactive) {
       controller.dispose();
-
       _controller = null;
-    } else if (state == AppLifecycleState.resumed &&
+    }
+
+    if (state == AppLifecycleState.resumed &&
         _cameras.isNotEmpty) {
       _initializeCamera(
         preferredCamera:
@@ -85,6 +88,81 @@ class _CameraCaptureWidgetState
         keepCapturedImage: true,
       );
     }
+  }
+
+  // =========================================================
+  // FIND BEST CAMERA
+  // =========================================================
+
+  int _findBestCamera(
+    CameraLensDirection direction,
+  ) {
+    final candidates = <int>[];
+
+    for (int i = 0; i < _cameras.length; i++) {
+      if (_cameras[i].lensDirection == direction) {
+        candidates.add(i);
+      }
+    }
+
+    if (candidates.isEmpty) {
+      return 0;
+    }
+
+    if (candidates.length == 1) {
+      return candidates.first;
+    }
+
+    int bestIndex = candidates.first;
+    int bestScore = -999;
+
+    for (final index in candidates) {
+      final name =
+          _cameras[index].name.toLowerCase();
+
+      int score = 0;
+
+      // Kamera utama.
+      if (name.contains('main')) {
+        score += 60;
+      }
+
+      if (name.contains('wide')) {
+        score += 50;
+      }
+
+      if (name.contains('front')) {
+        score += 40;
+      }
+
+      if (name.contains('back')) {
+        score += 40;
+      }
+
+      if (name.contains('rear')) {
+        score += 40;
+      }
+
+      // Hindari kamera tambahan.
+      if (name.contains('macro')) {
+        score -= 100;
+      }
+
+      if (name.contains('tele')) {
+        score -= 100;
+      }
+
+      if (name.contains('depth')) {
+        score -= 100;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+
+    return bestIndex;
   }
 
   // =========================================================
@@ -98,7 +176,6 @@ class _CameraCaptureWidgetState
     if (mounted) {
       setState(() {
         _loading = true;
-
         _cameraError = null;
       });
     }
@@ -109,8 +186,7 @@ class _CameraCaptureWidgetState
       // =====================================================
 
       if (_cameras.isEmpty) {
-        _cameras =
-            await availableCameras();
+        _cameras = await availableCameras();
       }
 
       if (_cameras.isEmpty) {
@@ -131,42 +207,32 @@ class _CameraCaptureWidgetState
       CameraDescription cameraToUse;
 
       // =====================================================
-      // USE REQUESTED CAMERA
+      // PREFERRED CAMERA
       // =====================================================
 
       if (preferredCamera != null) {
-        cameraToUse =
-            preferredCamera;
-
-        final index =
-            _cameras.indexWhere(
+        final index = _cameras.indexWhere(
           (camera) =>
-              camera.name ==
-              preferredCamera.name,
+              camera.name == preferredCamera.name,
         );
 
         if (index >= 0) {
-          _selectedCameraIndex =
-              index;
+          _selectedCameraIndex = index;
         }
+
+        cameraToUse =
+            _cameras[_selectedCameraIndex];
       }
 
       // =====================================================
-      // DEFAULT FRONT CAMERA
+      // DEFAULT = FRONT CAMERA
       // =====================================================
 
       else {
-        final frontIndex =
-            _cameras.indexWhere(
-          (camera) =>
-              camera.lensDirection ==
-              CameraLensDirection.front,
-        );
-
         _selectedCameraIndex =
-            frontIndex >= 0
-                ? frontIndex
-                : 0;
+            _findBestCamera(
+          CameraLensDirection.front,
+        );
 
         cameraToUse =
             _cameras[_selectedCameraIndex];
@@ -176,46 +242,51 @@ class _CameraCaptureWidgetState
       // DISPOSE OLD CONTROLLER
       // =====================================================
 
-      final oldController =
-          _controller;
+      final oldController = _controller;
 
       _controller = null;
 
       await oldController?.dispose();
 
       // =====================================================
-      // CREATE NEW CONTROLLER
+      // RESOLUTION
+      //
+      // WEB:
+      // low -> meminta 320 x 240 = 4:3.
+      //
+      // Ini sengaja supaya stream kamera cocok dengan
+      // live view portrait 3:4 dan tidak perlu crop besar.
+      //
+      // Android/iOS native tetap high.
       // =====================================================
+
+      final resolutionPreset =
+          kIsWeb
+              ? ResolutionPreset.low
+              : ResolutionPreset.high;
 
       final newController =
           CameraController(
         cameraToUse,
-
-        // High sudah cukup jelas untuk bukti presensi.
-        ResolutionPreset.high,
-
+        resolutionPreset,
         enableAudio: false,
       );
 
-      _controller =
-          newController;
+      _controller = newController;
 
       await newController.initialize();
 
       if (!mounted) {
         await newController.dispose();
-
         return;
       }
 
       setState(() {
         _loading = false;
-
         _cameraError = null;
 
         if (!keepCapturedImage) {
           _capturedImage = null;
-
           _imageApproved = false;
         }
       });
@@ -245,12 +316,122 @@ class _CameraCaptureWidgetState
   }
 
   // =========================================================
-  // CAPTURE PHOTO
+  // CROP FOTO MENJADI 3:4
+  // =========================================================
+
+  Uint8List _cropToThreeFour(
+    Uint8List bytes,
+  ) {
+    final decoded =
+        img.decodeImage(bytes);
+
+    if (decoded == null) {
+      return bytes;
+    }
+
+    final source =
+        img.bakeOrientation(decoded);
+
+    // =======================================================
+    // PASTIKAN ORIENTASI PORTRAIT
+    // =======================================================
+
+    img.Image portraitSource = source;
+
+    if (source.width > source.height) {
+      portraitSource =
+          img.copyRotate(
+        source,
+        angle: 90,
+      );
+    }
+
+    const targetRatio = 3 / 4;
+
+    final sourceRatio =
+        portraitSource.width /
+            portraitSource.height;
+
+    int cropWidth;
+    int cropHeight;
+
+    // =======================================================
+    // FOTO TERLALU LEBAR
+    // =======================================================
+
+    if (sourceRatio > targetRatio) {
+      cropHeight =
+          portraitSource.height;
+
+      cropWidth =
+          (cropHeight * targetRatio)
+              .round();
+    }
+
+    // =======================================================
+    // FOTO TERLALU TINGGI
+    // =======================================================
+
+    else {
+      cropWidth =
+          portraitSource.width;
+
+      cropHeight =
+          (cropWidth / targetRatio)
+              .round();
+    }
+
+    cropWidth =
+        cropWidth
+            .clamp(
+              1,
+              portraitSource.width,
+            )
+            .toInt();
+
+    cropHeight =
+        cropHeight
+            .clamp(
+              1,
+              portraitSource.height,
+            )
+            .toInt();
+
+    final x =
+        ((portraitSource.width -
+                    cropWidth) /
+                2)
+            .round();
+
+    final y =
+        ((portraitSource.height -
+                    cropHeight) /
+                2)
+            .round();
+
+    final cropped =
+        img.copyCrop(
+      portraitSource,
+      x: x,
+      y: y,
+      width: cropWidth,
+      height: cropHeight,
+    );
+
+    return Uint8List.fromList(
+      img.encodeJpg(
+        cropped,
+        quality: 90,
+      ),
+    );
+  }
+
+  // =========================================================
+  // CAPTURE
   // =========================================================
 
   Future<void> _capturePhoto() async {
-    final controller =
-        _controller;
+    final controller = _controller;
 
     if (controller == null ||
         !controller.value.isInitialized ||
@@ -261,7 +442,6 @@ class _CameraCaptureWidgetState
 
     setState(() {
       _capturing = true;
-
       _cameraError = null;
     });
 
@@ -269,8 +449,13 @@ class _CameraCaptureWidgetState
       final picture =
           await controller.takePicture();
 
-      final bytes =
+      final originalBytes =
           await picture.readAsBytes();
+
+      final processedBytes =
+          _cropToThreeFour(
+        originalBytes,
+      );
 
       if (!mounted) {
         return;
@@ -278,7 +463,7 @@ class _CameraCaptureWidgetState
 
       setState(() {
         _capturedImage =
-            bytes;
+            processedBytes;
 
         _imageApproved =
             false;
@@ -316,27 +501,17 @@ class _CameraCaptureWidgetState
   // =========================================================
 
   Future<void> _switchCamera() async {
-    if (_cameras.length < 2 ||
-        _switchingCamera) {
+    if (_switchingCamera ||
+        _cameras.length < 2) {
       return;
     }
 
     setState(() {
-      _switchingCamera =
-          true;
-
-      _cameraError =
-          null;
+      _switchingCamera = true;
+      _cameraError = null;
     });
 
     try {
-      // =====================================================
-      // Cari kamera dengan arah berbeda.
-      //
-      // Jadi tidak hanya pindah index sembarangan jika
-      // device punya banyak kamera belakang.
-      // =====================================================
-
       final currentCamera =
           _cameras[_selectedCameraIndex];
 
@@ -347,19 +522,9 @@ class _CameraCaptureWidgetState
               : CameraLensDirection.front;
 
       final targetIndex =
-          _cameras.indexWhere(
-        (camera) =>
-            camera.lensDirection ==
-            targetDirection,
+          _findBestCamera(
+        targetDirection,
       );
-
-      if (targetIndex < 0) {
-        _showMessage(
-          'Kamera lain tidak tersedia.',
-        );
-
-        return;
-      }
 
       _selectedCameraIndex =
           targetIndex;
@@ -371,8 +536,7 @@ class _CameraCaptureWidgetState
     } finally {
       if (mounted) {
         setState(() {
-          _switchingCamera =
-              false;
+          _switchingCamera = false;
         });
       }
     }
@@ -386,19 +550,14 @@ class _CameraCaptureWidgetState
     widget.onImageReset?.call();
 
     setState(() {
-      _capturedImage =
-          null;
-
-      _imageApproved =
-          false;
-
-      _cameraError =
-          null;
+      _capturedImage = null;
+      _imageApproved = false;
+      _cameraError = null;
     });
   }
 
   // =========================================================
-  // APPROVE
+  // APPROVE PHOTO
   // =========================================================
 
   void _approvePhoto() {
@@ -414,13 +573,12 @@ class _CameraCaptureWidgetState
     );
 
     setState(() {
-      _imageApproved =
-          true;
+      _imageApproved = true;
     });
   }
 
   // =========================================================
-  // ERROR MESSAGE
+  // CAMERA ERROR MESSAGE
   // =========================================================
 
   String _cameraErrorMessage(
@@ -446,102 +604,74 @@ class _CameraCaptureWidgetState
   }
 
   // =========================================================
-  // MESSAGE
-  // =========================================================
-
-  void _showMessage(
-    String message,
-  ) {
-    if (!mounted) {
-      return;
-    }
-
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            message,
-          ),
-        ),
-      );
-  }
-
-  // =========================================================
-  // LIVE CAMERA PREVIEW
+  // CAMERA PREVIEW
   //
-  // INI BAGIAN PENTING.
-  //
-  // Jangan gunakan BoxFit.cover karena cover akan
-  // memotong sisi video sehingga terlihat seperti zoom.
-  //
-  // Kita menggunakan BoxFit.contain agar SELURUH VIEW
-  // kamera terlihat.
+  // IgnorePointer:
+  // Gesture swipe pada kamera tetap bisa digunakan
+  // untuk scroll halaman di Safari iOS.
   // =========================================================
 
   Widget _buildCameraPreview(
     CameraController controller,
   ) {
-    final previewSize =
-        controller.value.previewSize;
-
-    if (previewSize == null) {
-      return CameraPreview(
+    return IgnorePointer(
+      ignoring: true,
+      child: CameraPreview(
         controller,
-      );
-    }
-
-    // Camera preview biasanya diberikan dalam orientation
-    // sensor landscape.
-    //
-    // Untuk tampilan portrait kita balik width & height.
-    final previewWidth =
-        previewSize.height;
-
-    final previewHeight =
-        previewSize.width;
-
-    return LayoutBuilder(
-      builder: (
-        context,
-        constraints,
-      ) {
-        return ColoredBox(
-          color: Colors.black,
-
-          child: Center(
-            child: FittedBox(
-              // =============================================
-              // PENTING
-              //
-              // contain = TIDAK CROP / TIDAK ZOOM
-              // =============================================
-
-              fit: BoxFit.contain,
-
-              child: SizedBox(
-                width:
-                    previewWidth,
-
-                height:
-                    previewHeight,
-
-                child:
-                    CameraPreview(
-                  controller,
-                ),
-              ),
-            ),
-          ),
-        );
-      },
+      ),
     );
   }
 
   // =========================================================
-  // CAMERA FRAME
-  //
-  // FIXED 3:4 PORTRAIT
+  // FACE GUIDE
+  // =========================================================
+
+  Widget _buildFaceGuide() {
+    return IgnorePointer(
+      ignoring: true,
+      child: Center(
+        child: LayoutBuilder(
+          builder: (
+            context,
+            constraints,
+          ) {
+            // =================================================
+            // GUIDE TIDAK MOLOr
+            // =================================================
+
+            final guideWidth =
+                constraints.maxWidth *
+                    0.48;
+
+            final guideHeight =
+                guideWidth * 1.28;
+
+            return Container(
+              width: guideWidth,
+              height: guideHeight,
+              decoration: BoxDecoration(
+                borderRadius:
+                    BorderRadius.circular(
+                  guideWidth,
+                ),
+                border: Border.all(
+                  color:
+                      Colors.white
+                          .withValues(
+                    alpha: 0.78,
+                  ),
+                  width: 2,
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // =========================================================
+  // FIXED LIVE VIEW 3:4
   // =========================================================
 
   Widget _buildCameraFrame(
@@ -549,115 +679,73 @@ class _CameraCaptureWidgetState
   ) {
     return AspectRatio(
       // =====================================================
-      // WIDTH : HEIGHT
-      //
-      // 3 : 4
+      // PATEN 3:4 PORTRAIT
       // =====================================================
 
       aspectRatio: 3 / 4,
 
       child: ClipRRect(
         borderRadius:
-            BorderRadius.circular(
-          20,
-        ),
+            BorderRadius.circular(18),
 
         child: Stack(
           fit: StackFit.expand,
 
           children: [
             // =================================================
-            // LIVE CAMERA / RESULT
+            // LIVE CAMERA
             // =================================================
 
-            ColoredBox(
-              color:
-                  Colors.black,
+            if (_capturedImage == null)
+              ColoredBox(
+                color: Colors.black,
 
-              child:
-                  _capturedImage ==
-                          null
-                      ? _buildCameraPreview(
-                          controller,
-                        )
-                      : Image.memory(
-                          _capturedImage!,
+                child:
+                    _buildCameraPreview(
+                  controller,
+                ),
+              )
 
-                          // Untuk hasil foto juga jangan crop.
-                          fit:
-                              BoxFit.contain,
+            // =================================================
+            // RESULT PHOTO
+            // =================================================
 
-                          gaplessPlayback:
-                              true,
-                        ),
-            ),
+            else
+              ColoredBox(
+                color: Colors.black,
+
+                child: Image.memory(
+                  _capturedImage!,
+
+                  // Foto sudah 3:4 sehingga tidak perlu cover.
+                  fit: BoxFit.contain,
+
+                  gaplessPlayback: true,
+                ),
+              ),
 
             // =================================================
             // FACE GUIDE
             // =================================================
 
-            if (_capturedImage ==
-                null)
-              IgnorePointer(
-                child: Center(
-                  child:
-                      FractionallySizedBox(
-                    widthFactor:
-                        0.52,
-
-                    heightFactor:
-                        0.58,
-
-                    child:
-                        Container(
-                      decoration:
-                          BoxDecoration(
-                        borderRadius:
-                            BorderRadius.circular(
-                          100,
-                        ),
-
-                        border:
-                            Border.all(
-                          color:
-                              Colors.white
-                                  .withValues(
-                            alpha:
-                                0.65,
-                          ),
-
-                          width:
-                              2,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            if (_capturedImage == null)
+              _buildFaceGuide(),
 
             // =================================================
             // SWITCH CAMERA
             // =================================================
 
-            if (_capturedImage ==
-                null)
+            if (_capturedImage == null)
               Positioned(
-                top:
-                    12,
+                top: 10,
+                right: 10,
 
-                right:
-                    12,
-
-                child:
-                    Material(
-                  color:
-                      Colors.black54,
-
+                child: Material(
+                  color: Colors.black54,
                   shape:
                       const CircleBorder(),
 
-                  child:
-                      IconButton(
+                  child: IconButton(
                     tooltip:
                         'Ganti Kamera',
 
@@ -671,17 +759,12 @@ class _CameraCaptureWidgetState
                     icon:
                         _switchingCamera
                             ? const SizedBox(
-                                width:
-                                    20,
-
-                                height:
-                                    20,
+                                width: 18,
+                                height: 18,
 
                                 child:
                                     CircularProgressIndicator(
-                                  strokeWidth:
-                                      2,
-
+                                  strokeWidth: 2,
                                   color:
                                       Colors.white,
                                 ),
@@ -689,7 +772,6 @@ class _CameraCaptureWidgetState
                             : const Icon(
                                 Icons
                                     .cameraswitch_rounded,
-
                                 color:
                                     Colors.white,
                               ),
@@ -698,61 +780,52 @@ class _CameraCaptureWidgetState
               ),
 
             // =================================================
-            // INFO
+            // BOTTOM INFO
             // =================================================
 
             Positioned(
-              left:
-                  12,
+              left: 10,
+              right: 10,
+              bottom: 10,
 
-              right:
-                  12,
-
-              bottom:
-                  12,
-
-              child:
-                  Container(
-                padding:
-                    const EdgeInsets.symmetric(
-                  horizontal:
-                      12,
-
-                  vertical:
-                      8,
-                ),
-
-                decoration:
-                    BoxDecoration(
-                  color:
-                      Colors.black54,
-
-                  borderRadius:
-                      BorderRadius.circular(
-                    12,
+              child: IgnorePointer(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
                   ),
-                ),
 
-                child:
-                    Text(
-                  _capturedImage ==
-                          null
-                      ? 'Posisikan wajah di tengah kamera'
-                      : 'Periksa foto sebelum digunakan',
-
-                  textAlign:
-                      TextAlign.center,
-
-                  style:
-                      const TextStyle(
+                  decoration:
+                      BoxDecoration(
                     color:
-                        Colors.white,
+                        Colors.black54,
 
-                    fontWeight:
-                        FontWeight.w600,
+                    borderRadius:
+                        BorderRadius.circular(
+                      12,
+                    ),
+                  ),
 
-                    fontSize:
-                        13,
+                  child: Text(
+                    _capturedImage == null
+                        ? 'Posisikan wajah di tengah kamera'
+                        : 'Periksa foto sebelum digunakan',
+
+                    textAlign:
+                        TextAlign.center,
+
+                    style:
+                        const TextStyle(
+                      color:
+                          Colors.white,
+
+                      fontWeight:
+                          FontWeight.w600,
+
+                      fontSize:
+                          12,
+                    ),
                   ),
                 ),
               ),
@@ -769,41 +842,30 @@ class _CameraCaptureWidgetState
 
   Widget _buildCaptureButton() {
     return SizedBox(
-      width:
-          double.infinity,
+      height: 52,
+      width: double.infinity,
 
-      height:
-          54,
-
-      child:
-          FilledButton.icon(
+      child: FilledButton.icon(
         onPressed:
             _capturing
                 ? null
                 : _capturePhoto,
 
-        icon:
-            _capturing
-                ? const SizedBox(
-                    width:
-                        20,
+        icon: _capturing
+            ? const SizedBox(
+                width: 19,
+                height: 19,
 
-                    height:
-                        20,
+                child:
+                    CircularProgressIndicator(
+                  strokeWidth: 2,
+                ),
+              )
+            : const Icon(
+                Icons.camera_alt_rounded,
+              ),
 
-                    child:
-                        CircularProgressIndicator(
-                      strokeWidth:
-                          2,
-                    ),
-                  )
-                : const Icon(
-                    Icons
-                        .camera_alt_rounded,
-                  ),
-
-        label:
-            Text(
+        label: Text(
           _capturing
               ? 'Mengambil Foto...'
               : 'AMBIL FOTO',
@@ -822,24 +884,21 @@ class _CameraCaptureWidgetState
         context,
         constraints,
       ) {
-        final isNarrow =
-            constraints.maxWidth <
-                430;
+        final isSmall =
+            constraints.maxWidth < 430;
 
         // ===================================================
         // MOBILE
         // ===================================================
 
-        if (isNarrow) {
+        if (isSmall) {
           return Column(
             crossAxisAlignment:
-                CrossAxisAlignment
-                    .stretch,
+                CrossAxisAlignment.stretch,
 
             children: [
               SizedBox(
-                height:
-                    52,
+                height: 50,
 
                 child:
                     OutlinedButton.icon(
@@ -848,8 +907,7 @@ class _CameraCaptureWidgetState
 
                   icon:
                       const Icon(
-                    Icons
-                        .refresh_rounded,
+                    Icons.refresh_rounded,
                   ),
 
                   label:
@@ -860,13 +918,11 @@ class _CameraCaptureWidgetState
               ),
 
               const SizedBox(
-                height:
-                    10,
+                height: 8,
               ),
 
               SizedBox(
-                height:
-                    52,
+                height: 50,
 
                 child:
                     FilledButton.icon(
@@ -875,8 +931,7 @@ class _CameraCaptureWidgetState
 
                   icon:
                       const Icon(
-                    Icons
-                        .check_rounded,
+                    Icons.check_rounded,
                   ),
 
                   label:
@@ -896,10 +951,8 @@ class _CameraCaptureWidgetState
         return Row(
           children: [
             Expanded(
-              child:
-                  SizedBox(
-                height:
-                    52,
+              child: SizedBox(
+                height: 50,
 
                 child:
                     OutlinedButton.icon(
@@ -908,8 +961,7 @@ class _CameraCaptureWidgetState
 
                   icon:
                       const Icon(
-                    Icons
-                        .refresh_rounded,
+                    Icons.refresh_rounded,
                   ),
 
                   label:
@@ -921,15 +973,12 @@ class _CameraCaptureWidgetState
             ),
 
             const SizedBox(
-              width:
-                  12,
+              width: 10,
             ),
 
             Expanded(
-              child:
-                  SizedBox(
-                height:
-                    52,
+              child: SizedBox(
+                height: 50,
 
                 child:
                     FilledButton.icon(
@@ -938,8 +987,7 @@ class _CameraCaptureWidgetState
 
                   icon:
                       const Icon(
-                    Icons
-                        .check_rounded,
+                    Icons.check_rounded,
                   ),
 
                   label:
@@ -956,15 +1004,117 @@ class _CameraCaptureWidgetState
   }
 
   // =========================================================
+  // LOADING
+  // =========================================================
+
+  Widget _buildLoading() {
+    return const Padding(
+      padding:
+          EdgeInsets.symmetric(
+        vertical: 35,
+      ),
+
+      child: Center(
+        child: Column(
+          mainAxisSize:
+              MainAxisSize.min,
+
+          children: [
+            CircularProgressIndicator(),
+
+            SizedBox(
+              height: 12,
+            ),
+
+            Text(
+              'Menyiapkan kamera...',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // =========================================================
+  // ERROR
+  // =========================================================
+
+  Widget _buildError() {
+    return Padding(
+      padding:
+          const EdgeInsets.symmetric(
+        vertical: 24,
+      ),
+
+      child: Center(
+        child: ConstrainedBox(
+          constraints:
+              const BoxConstraints(
+            maxWidth: 420,
+          ),
+
+          child: Column(
+            mainAxisSize:
+                MainAxisSize.min,
+
+            children: [
+              Icon(
+                Icons
+                    .no_photography_outlined,
+
+                size: 48,
+
+                color:
+                    Theme.of(context)
+                        .colorScheme
+                        .error,
+              ),
+
+              const SizedBox(
+                height: 12,
+              ),
+
+              Text(
+                _cameraError ??
+                    'Kamera belum siap.',
+
+                textAlign:
+                    TextAlign.center,
+              ),
+
+              const SizedBox(
+                height: 14,
+              ),
+
+              FilledButton.icon(
+                onPressed:
+                    _initializeCamera,
+
+                icon:
+                    const Icon(
+                  Icons.refresh_rounded,
+                ),
+
+                label:
+                    const Text(
+                  'Coba Lagi',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // =========================================================
   // DISPOSE
   // =========================================================
 
   @override
   void dispose() {
     WidgetsBinding.instance
-        .removeObserver(
-      this,
-    );
+        .removeObserver(this);
 
     _controller?.dispose();
 
@@ -979,58 +1129,16 @@ class _CameraCaptureWidgetState
   Widget build(
     BuildContext context,
   ) {
-    final screenWidth =
-        MediaQuery.sizeOf(
-      context,
-    ).width;
-
-    final isMobile =
-        screenWidth < 700;
-
-    // Supaya kamera tidak terlalu besar memenuhi layar HP.
-    final maxWidth =
-        isMobile
-            ? 420.0
-            : 620.0;
-
     // =======================================================
     // LOADING
     // =======================================================
 
     if (_loading) {
-      return const Padding(
-        padding:
-            EdgeInsets.symmetric(
-          vertical:
-              48,
-        ),
-
-        child:
-            Center(
-          child:
-              Column(
-            mainAxisSize:
-                MainAxisSize.min,
-
-            children: [
-              CircularProgressIndicator(),
-
-              SizedBox(
-                height:
-                    16,
-              ),
-
-              Text(
-                'Menyiapkan kamera...',
-              ),
-            ],
-          ),
-        ),
-      );
+      return _buildLoading();
     }
 
     // =======================================================
-    // CAMERA ERROR
+    // ERROR
     // =======================================================
 
     if (_cameraError != null ||
@@ -1038,136 +1146,113 @@ class _CameraCaptureWidgetState
         !_controller!
             .value
             .isInitialized) {
-      return Padding(
-        padding:
-            const EdgeInsets.symmetric(
-          vertical:
-              32,
-        ),
-
-        child:
-            Center(
-          child:
-              ConstrainedBox(
-            constraints:
-                const BoxConstraints(
-              maxWidth:
-                  450,
-            ),
-
-            child:
-                Column(
-              mainAxisSize:
-                  MainAxisSize.min,
-
-              children: [
-                const Icon(
-                  Icons
-                      .no_photography_outlined,
-
-                  size:
-                      55,
-                ),
-
-                const SizedBox(
-                  height:
-                      16,
-                ),
-
-                Text(
-                  _cameraError ??
-                      'Kamera belum siap.',
-
-                  textAlign:
-                      TextAlign.center,
-                ),
-
-                const SizedBox(
-                  height:
-                      16,
-                ),
-
-                FilledButton.icon(
-                  onPressed:
-                      _initializeCamera,
-
-                  icon:
-                      const Icon(
-                    Icons
-                        .refresh_rounded,
-                  ),
-
-                  label:
-                      const Text(
-                    'Coba Lagi',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
+      return _buildError();
     }
 
-    final controller =
-        _controller!;
+    // =======================================================
+    // SCREEN SIZE
+    // =======================================================
+
+    final media =
+        MediaQuery.sizeOf(context);
+
+    final screenWidth =
+        media.width;
+
+    final screenHeight =
+        media.height;
+
+    final isMobile =
+        screenWidth < 700;
 
     // =======================================================
-    // CAMERA READY
+    // RESPONSIVE CAMERA WIDTH
+    //
+    // Karena frame sekarang 3:4, jangan terlalu lebar.
+    //
+    // Tujuan:
+    // tombol AMBIL FOTO tetap dekat dan mudah terlihat.
+    // =======================================================
+
+    final double cameraWidth;
+
+    if (isMobile) {
+      // HP sangat pendek.
+      if (screenHeight < 650) {
+        cameraWidth = 225;
+      }
+
+      // iPhone kecil / SE.
+      else if (screenHeight < 740) {
+        cameraWidth = 240;
+      }
+
+      // HP medium.
+      else if (screenHeight < 850) {
+        cameraWidth = 255;
+      }
+
+      // HP modern / tinggi.
+      else {
+        cameraWidth = 270;
+      }
+    }
+
+    // Tablet / desktop.
+    else {
+      cameraWidth = 390;
+    }
+
+    // =======================================================
+    // CAMERA CONTENT
     // =======================================================
 
     return Center(
-      child:
-          ConstrainedBox(
+      child: ConstrainedBox(
         constraints:
             BoxConstraints(
-          maxWidth:
-              maxWidth,
+          maxWidth: cameraWidth,
         ),
 
-        child:
-            Column(
+        child: Column(
           crossAxisAlignment:
               CrossAxisAlignment.stretch,
 
           children: [
             // =================================================
-            // CAMERA 3:4
+            // FIXED 3:4 LIVE VIEW
             // =================================================
 
             _buildCameraFrame(
-              controller,
+              _controller!,
             ),
 
             const SizedBox(
-              height:
-                  16,
+              height: 10,
             ),
 
             // =================================================
-            // CAPTURE / RESULT BUTTONS
+            // CAPTURE / RESULT BUTTON
             // =================================================
 
-            if (_capturedImage ==
-                null)
+            if (_capturedImage == null)
               _buildCaptureButton()
             else
               _buildResultButtons(),
 
             // =================================================
-            // APPROVED
+            // PHOTO APPROVED
             // =================================================
 
             if (_imageApproved) ...[
               const SizedBox(
-                height:
-                    14,
+                height: 10,
               ),
 
               Container(
                 padding:
                     const EdgeInsets.all(
-                  12,
+                  10,
                 ),
 
                 decoration:
@@ -1175,13 +1260,12 @@ class _CameraCaptureWidgetState
                   color:
                       Colors.green
                           .withValues(
-                    alpha:
-                        0.08,
+                    alpha: 0.08,
                   ),
 
                   borderRadius:
                       BorderRadius.circular(
-                    14,
+                    12,
                   ),
 
                   border:
@@ -1189,8 +1273,7 @@ class _CameraCaptureWidgetState
                     color:
                         Colors.green
                             .withValues(
-                      alpha:
-                          0.25,
+                      alpha: 0.20,
                     ),
                   ),
                 ),
@@ -1204,17 +1287,17 @@ class _CameraCaptureWidgetState
 
                       color:
                           Colors.green,
+
+                      size: 20,
                     ),
 
                     SizedBox(
-                      width:
-                          10,
+                      width: 8,
                     ),
 
                     Expanded(
-                      child:
-                          Text(
-                        'Foto siap digunakan untuk absensi',
+                      child: Text(
+                        'Foto siap digunakan',
 
                         style:
                             TextStyle(
@@ -1232,8 +1315,7 @@ class _CameraCaptureWidgetState
             ],
 
             const SizedBox(
-              height:
-                  24,
+              height: 14,
             ),
           ],
         ),

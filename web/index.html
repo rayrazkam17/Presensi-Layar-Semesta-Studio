@@ -185,9 +185,104 @@
     href="manifest.json"
   >
 
+  <!-- ========================================= -->
+  <!-- IOS SAFARI CAMERA SCROLL FIX -->
+  <!-- ========================================= -->
+
+  <style>
+
+    /*
+     * =====================================================
+     * CAMERA VIDEO
+     * =====================================================
+     *
+     * Flutter camera_web menggunakan elemen <video>.
+     *
+     * Safari iOS terkadang membuat elemen video menangkap
+     * gesture swipe sehingga ListView Flutter tidak menerima
+     * gesture scroll.
+     *
+     * Karena kita tidak membutuhkan tap / pinch / zoom pada
+     * video, pointer event pada video dapat dimatikan.
+     */
+
+    video {
+      pointer-events: none !important;
+
+      touch-action: pan-y !important;
+
+      -webkit-user-select: none !important;
+
+      user-select: none !important;
+
+      -webkit-touch-callout: none !important;
+    }
+
+
+    /*
+     * =====================================================
+     * HTML + BODY
+     * =====================================================
+     */
+
+    html,
+    body {
+      margin: 0;
+
+      padding: 0;
+
+      width: 100%;
+
+      min-height: 100%;
+
+      overscroll-behavior-y: auto;
+
+      -webkit-overflow-scrolling: touch;
+    }
+
+
+    /*
+     * =====================================================
+     * FLUTTER APP
+     * =====================================================
+     *
+     * Pastikan gesture vertikal diperbolehkan.
+     */
+
+    flt-glass-pane {
+      touch-action: pan-y;
+    }
+
+
+    /*
+     * =====================================================
+     * IOS SAFE AREA
+     * =====================================================
+     */
+
+    body {
+      padding-top:
+        env(safe-area-inset-top);
+
+      padding-left:
+        env(safe-area-inset-left);
+
+      padding-right:
+        env(safe-area-inset-right);
+
+      box-sizing:
+        border-box;
+    }
+
+  </style>
+
 </head>
 
 <body>
+
+  <!-- ========================================= -->
+  <!-- FLUTTER -->
+  <!-- ========================================= -->
 
   <script
     src="flutter_bootstrap.js"
